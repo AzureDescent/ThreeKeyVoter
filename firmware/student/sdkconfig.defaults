@@ -1,0 +1,30 @@
+# ============================================================
+#  ESP32-C3 SuperMini — 团队共享配置
+# ============================================================
+#  说明：sdkconfig 是本地生成的文件，不入库；
+#        需要全队共享的配置写在这里，大家 clone 下来就一致。
+#
+#  改了本文件后要让它生效：删掉工程目录下的 sdkconfig 再 build，
+#  或者直接 `idf.py reconfigure`。
+# ============================================================
+
+# ---- 目标芯片 ----
+CONFIG_IDF_TARGET="esp32c3"
+
+# ---- Flash ----
+# 板载 4MB 嵌入式 Flash（XMC），已用 esptool flash_id 实测确认
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# ---- 分区表 ----
+# 单 app 大分区，给后期 ESP-NOW / Wi-Fi 代码留足空间
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# ---- 控制台 ----
+# 硬件实测 USB mode = USB-Serial/JTAG，即 USB-C 直连原生 USB（GPIO18/19），
+# 所以控制台走 USB Serial/JTAG：插上 USB-C，idf.py monitor 直接就能看到输出。
+#
+# 如果以后换成带 USB-UART 桥芯片的板子，把下面两行替换为：
+#   CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y

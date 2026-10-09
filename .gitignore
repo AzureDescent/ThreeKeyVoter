@@ -1,0 +1,46 @@
+# ============================================================
+#  ThreeKeyVoter — 忽略规则
+# ============================================================
+
+# ---------- ESP-IDF ----------
+# 构建产物（每个工程的 build/ 都会被忽略）
+build/
+compile_commands.json
+
+# sdkconfig 是本地生成的，不入库；
+# 需要团队共享的配置写进各工程的 sdkconfig.defaults
+sdkconfig
+sdkconfig.old
+
+# 组件管理器下载的依赖源码不入库，
+# 但 dependencies.lock 要入库，用来锁定版本
+managed_components/
+
+# ---------- Python（backend / 工具脚本）----------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# ---------- Node / 前端 ----------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# ---------- 编辑器 / 操作系统 ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 杂项 ----------
+*.log
+tmp/

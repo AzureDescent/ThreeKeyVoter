@@ -1,0 +1,35 @@
+# ============================================================
+#  ThreeKeyVoter — Git 属性
+# ============================================================
+#  目的：让 Windows / macOS / Linux 三个平台 checkout 出来的
+#  文本文件换行符一致，避免出现整个文件"全部改动"的假 diff，
+#  也避免 ESP-IDF 的 Python 脚本因 CRLF 报错。
+# ============================================================
+
+# 默认：由 git 自动识别文本文件，统一以 LF 存进仓库
+* text=auto eol=lf
+
+# Windows 批处理必须保持 CRLF，否则可能无法执行
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 以下为二进制文件，git 不做任何换行符转换
+# --- 固件产物 ---
+*.bin binary
+*.elf binary
+*.hex binary
+*.a binary
+*.o binary
+*.map binary
+
+# --- 图片 / 文档 ---
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.docx binary
+*.pptx binary
+*.xlsx binary
