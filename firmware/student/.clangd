@@ -1,0 +1,46 @@
+# clangd 配置 —— 让 VS Code 的智能感知 / 跳转在这个 ESP-IDF 工程里正常工作
+# =============================================================================
+# 这个文件是给 clangd（VS Code 的 clangd 扩展）读的，不是给编译器读的。
+# 它按目录生效，所以直接打开仓库根目录也能正确区分两个工程，不需要 workspace 文件。
+#
+# 为什么需要它：
+#
+# 1) CompilationDatabase: build
+#    ESP-IDF 生成的编译数据库在 build/compile_commands.json，
+#    但 build/ 并不是源文件（main/*.c）的祖先目录，
+#    clangd 默认只沿祖先目录向上查找，所以必须显式指路。
+#
+# 2) --target=riscv32-esp-elf
+#    ESP-IDF v6 把目标标志放进 GCC response file（build/toolchain/cflags），
+#    内容形如：
+#        -march=rv32imc_zicsr_zifencei
+#        -mtune=esp-base
+#        -specs=.../picolibc.specs
+#    **其中没有 --target**。GCC 自己知道要编 RISC-V，但 clangd 是通用前端，
+#    缺 target 时会按宿主机（x86）解析，于是报：
+#        error: unknown target CPU 'esp-base'
+#    整个翻译单元解析失败，补全 / 跳转 / 诊断全部失效。
+#
+# 3) Remove: -mtune=esp-base
+#    光加 target 还不够：Espressif 的 clangd 并不认识 `esp-base` 这个调优名
+#    （那是 GCC 侧的命名），会在 CreateTargetInfo() 阶段直接返回 null。
+#    把它摘掉即可。它只影响代码生成，不影响解析，所以对智能感知没有副作用。
+#    实际编译仍然由 GCC 带这个标志执行，不受影响。
+#
+# 改完如果 VS Code 里没生效：命令面板执行 "clangd: Restart language server"。
+# =============================================================================
+
+CompileFlags:
+  CompilationDatabase: build
+  Add:
+    - --target=riscv32-esp-elf
+  Remove:
+    - "-mtune=esp-base"
+
+Diagnostics:
+  # 关掉「未使用头文件」提示。
+  # 注意：clangd 输出面板里仍会刷
+  #   IncludeCleaner: Failed to get an entry for resolved path '' from include <stdbool.h>
+  # 这类内部日志 —— 那是交叉工具链下的已知噪声（它无法把标准头映射回具体文件），
+  # 不影响补全和跳转，可以直接无视。
+  UnusedIncludes: None

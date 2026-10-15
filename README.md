@@ -202,6 +202,42 @@ idf.py -p COM38 flash monitor    # 退出 monitor 按 Ctrl+]
 
 3. 网上大量教程是 v4/v5 时代的。照抄时注意这两个常见坑：`ESP_IF_WIFI_STA` 宏在 v6 已删除（改用 `WIFI_IF_STA`）；ESP-NOW 的 `esp_wifi_config_espnow_rate` 已改为 `esp_now_set_peer_rate_config`。
 
+## VS Code 智能感知 / 跳转（clangd）
+
+本仓库已经配好，**clone 下来就能用**，不需要自己折腾 includePath：
+
+| 文件 | 作用 |
+| --- | --- |
+| `firmware/student/.clangd`、`firmware/gateway/.clangd` | 告诉 clangd 用哪个编译数据库、目标是 RISC-V |
+| `.vscode/settings.json` | 关掉会和 clangd 抢活的引擎（C/C++ 扩展、CMake Tools 自动 configure） |
+| `.vscode/extensions.json` | 推荐 clangd，不建议装 C/C++ 扩展 |
+
+**前提**：该工程必须先 `idf.py build` 过一次 —— clangd 读的是 `build/compile_commands.json`。
+
+**需要的扩展**：`llvm-vs-code-extensions.vscode-clangd`
+
+**建议禁用或卸载**：
+
+- `ms-vscode.cpptools` —— 它自带一套 IntelliSense，与 clangd 同时开启会互相覆盖，表现就是「跳转时好时坏、很神秘」
+- `kylinideteam.cmake-intellisence` —— 第三套 CMake 智能感知，同样冲突
+- CMake Tools 可以留着，但**不要让它 configure ESP-IDF 工程**（原因见下）
+
+**改了 `.clangd` 不生效**：命令面板执行 `clangd: Restart language server`。
+
+**为什么 CMake Tools 不能用**：ESP-IDF 的 `CMakeLists.txt` 依赖 `IDF_PATH` 和 `riscv32-esp-elf` 工具链在 PATH 上，而 VS Code 启动时并没有跑过 `export.ps1`，所以 configure 必然失败，还会留下假的配置干扰 IntelliSense。`.vscode/settings.json` 里已经关掉了自动 configure。
+
+**出问题时的背景知识** —— ESP-IDF v6 把目标标志放进了 GCC response file `build/toolchain/cflags`：
+
+```text
+-march=rv32imc_zicsr_zifencei
+-mtune=esp-base
+-specs=.../picolibc.specs
+```
+
+这里面**没有 `--target`**。GCC 自己知道要编 RISC-V，但 clangd 是通用前端，缺 target 时按宿主机（x86）解析，于是报 `unknown target CPU 'esp-base'`，整个翻译单元解析失败 —— 补全、跳转、诊断全废。即使补上 `--target=riscv32-esp-elf`，Espressif 的 clangd 也不认识 `esp-base` 这个调优名（那是 GCC 侧的命名），会在 `CreateTargetInfo()` 直接返回 null。所以 `.clangd` 里还要把它 `Remove` 掉。这**只影响 clangd 的解析，不影响实际编译**。
+
+> clangd 输出面板里若刷 `IncludeCleaner: Failed to get an entry for resolved path ...`，是交叉工具链下的已知噪声，不影响使用。
+
 ## Git 工作流
 
 - `main` 是稳定分支，**不要直接往 `main` 推**

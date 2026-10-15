@@ -1,5 +1,10 @@
 {
   "recommendations": [
-    "espressif.esp-idf-extension"
+    "llvm-vs-code-extensions.vscode-clangd",
+    "ms-vscode.cmake-tools"
+  ],
+  "unwantedRecommendations": [
+    "ms-vscode.cpptools",
+    "ms-vscode.cpptools-extension-pack"
   ]
 }

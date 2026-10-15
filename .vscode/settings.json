@@ -1,0 +1,50 @@
+{
+  // ===========================================================================
+  //  VS Code 工作区设置 —— ThreeKeyVoter
+  // ===========================================================================
+  //  这个文件是给整个仓库（打开仓库根目录时）用的，内容与具体机器无关，
+  //  已纳入版本管理，队友 clone 下来就一致。
+  //
+  //  智能感知真正依赖的是 firmware/*/.clangd（按目录生效），不是这个文件。
+  //  这个文件负责的是「别让别的扩展跟 clangd 抢活」。
+  // ===========================================================================
+
+  // ── clangd：本项目唯一负责 C/C++ 智能感知的引擎 ──────────────────────
+  "clangd.arguments": [
+    "--background-index",
+    "--clang-tidy=false",
+    "--header-insertion=never",
+    "--completion-style=detailed",
+    "--pch-storage=memory"
+  ],
+  "clangd.onConfigChanged": "restart",
+
+  // 如果你想让 clangd 用 ESP-IDF 自带的那份（版本与工具链匹配），取消下一行注释，
+  // 并把中间的版本目录改成你机器上实际存在的（IDF 升级后会变）：
+  // "clangd.path": "${env:IDF_TOOLS_PATH}/tools/esp-clangd/esp-21.1.3_20260408/esp-clangd/bin/clangd.exe",
+
+  // ── 关掉会跟 clangd 抢同一件事的引擎 ─────────────────────────────────
+  // Microsoft C/C++ 扩展自带一套 IntelliSense，与 clangd 同时开启会互相覆盖，
+  // 表现就是"跳转时好时坏、很神秘"。这里彻底关掉它的语言功能，只留调试能力。
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.autocomplete": "disabled",
+  "C_Cpp.errorSquiggles": "disabled",
+  "C_Cpp.formatting": "disabled",
+
+  // CMake Tools 不能用来配置 ESP-IDF 工程：
+  // ESP-IDF 的 CMakeLists 需要 IDF_PATH 和 riscv32-esp-elf 工具链在 PATH 上，
+  // 而 VS Code 启动时并没有跑过 export.ps1，所以 configure 必然失败，
+  // 还会生成假的配置干扰 IntelliSense。这里禁止它自动 configure。
+  "cmake.configureOnOpen": false,
+  "cmake.automaticReconfigure": false,
+  "cmake.configureOnEdit": false,
+
+  // ── 顺手的小设置 ─────────────────────────────────────────────────────
+  "files.associations": {
+    "*.h": "c",
+    "sdkconfig": "properties"
+  },
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.eol": "\n"
+}
