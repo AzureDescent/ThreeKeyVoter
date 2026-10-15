@@ -1,0 +1,4 @@
+# PC 端读取程序的依赖
+# 安装：python -m pip install -r backend/requirements.txt
+
+pyserial>=3.5
