@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>课堂反馈 - 教师端</title>
+  <link rel="stylesheet" href="./css/index.css">
+</head>
+<body>
+
+  <div class="container">
+    
+    <div class="header">
+      <div class="header-left">
+        <p class="header-subtitle">课堂投票</p>
+        <h1 class="header-title">大家听懂了吗？</h1>
+      </div>
+      
+      <div class="header-right" style="display: flex; gap: 15px; align-items: center;">
+        <div class="device-status">
+          <span class="dot"></span> <span id="device-count">26</span> 台设备在线
+        </div>
+        <div class="live-badge" id="live-badge">
+          <span class="dot"></span> <span id="live-text">实时投票中</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="question-box">
+      <div class="question-header">
+        <p class="question-label">今日问题</p>
+        <div class="total-students">当前回答人数: <strong id="total-votes">26</strong></div>
+      </div>
+      <h2 class="question-text">学校是否应该改用可再生能源？</h2>
+      
+      <div class="controls">
+        <button class="btn-start" id="start-btn">▶ 开始反馈</button>
+        <button class="btn-end" id="end-btn" disabled>■ 结束反馈</button>
+      </div>
+    </div>
+
+    <div class="vote-cards">
+      
+      <div class="card card-yes">
+        <div class="card-top">
+          <div class="icon-box icon-yes">✓</div>
+          <span class="card-label label-yes">理解</span>
+        </div>
+        <div class="card-middle">
+          <span class="card-number" id="yes-count">0</span>
+          <span class="card-percent percent-yes" id="yes-percent">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill fill-yes" id="yes-bar" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div class="card card-notsure">
+        <div class="card-top">
+          <div class="icon-box icon-notsure">?</div>
+          <span class="card-label label-notsure">不确定</span>
+        </div>
+        <div class="card-middle">
+          <span class="card-number" id="notsure-count">0</span>
+          <span class="card-percent percent-notsure" id="notsure-percent">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill fill-notsure" id="notsure-bar" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div class="card card-no">
+        <div class="card-top">
+          <div class="icon-box icon-no">✕</div>
+          <span class="card-label label-no">未理解</span>
+        </div>
+        <div class="card-middle">
+          <span class="card-number" id="no-count">0</span>
+          <span class="card-percent percent-no" id="no-percent">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill fill-no" id="no-bar" style="width: 0%;"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="live-response">
+      <div class="donut-chart" id="donut-chart">
+        <div class="donut-inner">
+          <span class="donut-number" id="donut-total">0</span>
+          <span class="donut-text">总票数</span>
+        </div>
+      </div>
+
+      <div class="response-info">
+        <h3 class="response-title">实时课堂反馈</h3>
+        <p class="response-desc">学生提交投票后，结果会自动更新。</p>
+        
+        <div class="legend">
+          <div class="legend-item">
+            <span class="legend-dot dot-yes"></span>
+            <div>
+              <p class="legend-name">理解</p>
+              <p class="legend-val" id="legend-yes">0%</p>
+            </div>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot dot-notsure"></span>
+            <div>
+              <p class="legend-name">不确定</p>
+              <p class="legend-val" id="legend-notsure">0%</p>
+            </div>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot dot-no"></span>
+            <div>
+              <p class="legend-name">未理解</p>
+              <p class="legend-val" id="legend-no">0%</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </di    v>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

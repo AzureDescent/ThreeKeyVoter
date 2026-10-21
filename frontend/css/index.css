@@ -1,0 +1,369 @@
+/* Background болон Ерөнхий тохиргоо */
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #7b7be6;
+  background-image: 
+    radial-gradient(circle at 5% 95%, rgba(160, 70, 220, 0.5) 0%, transparent 50%),
+    radial-gradient(circle at 95% 5%, rgba(110, 130, 240, 0.5) 0%, transparent 50%),
+    linear-gradient(135deg, #7b7be6 0%, #6b5b95 100%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  font-family: Arial, Helvetica, sans-serif;
+  display: flex;
+  justify-content: center;
+}
+
+.container {
+  width: 100%;
+  max-width: 1200px;
+  padding: 40px 20px;
+  box-sizing: border-box;
+}
+
+/* --- HEADER --- */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.header-subtitle {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  margin: 0 0 10px 0;
+}
+
+.header-title {
+  color: #ffffff;
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -1.2px;
+  margin: 0;
+}
+
+/* Төхөөрөмжийн холболт */
+.device-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: 50px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.device-status .dot {
+  width: 10px;
+  height: 10px;
+  background-color: #4ade80;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #4ade80;
+}
+
+/* VOTING LIVE товчлуур */
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 10px 20px;
+  border-radius: 50px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.live-badge.offline {
+  background-color: rgba(255, 0, 0, 0.2);
+  border-color: rgba(255, 0, 0, 0.3);
+}
+.live-badge.offline .dot {
+  background-color: #ef4444;
+  box-shadow: 0 0 10px #ef4444;
+}
+
+/* --- АСУУЛТЫН ХАЙРЦАГ --- */
+.question-box {
+  background-color: #ffffff;
+  border-radius: 20px;
+  padding: 30px 40px;
+  margin-bottom: 24px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+}
+
+.question-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.question-label {
+  color: #7b7be6;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.total-students {
+  color: #666;
+  font-size: 16px;
+}
+.total-students strong {
+  color: #1a1a1a;
+  font-size: 20px;
+}
+
+.question-text {
+  color: #1a1a1a;
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 30px 0;
+  text-align: center;
+}
+
+/* --- START / END ТОВЧЛУУР --- */
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+}
+
+.controls button {
+  padding: 14px 28px;
+  border-radius: 12px;
+  border: none;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-start {
+  background-color: #22c55e;
+  color: white;
+}
+.btn-start:hover { background-color: #16a34a; }
+
+.btn-end {
+  background-color: #ef4444;
+  color: white;
+}
+.btn-end:hover { background-color: #dc2626; }
+
+.controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --- 3 САНАЛ ХУРААЛТЫН КАРТ --- */
+.vote-cards {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.card {
+  flex: 1;
+  background-color: #ffffff;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 30px;
+}
+
+.icon-box {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 18px;
+  color: white;
+  font-weight: bold;
+}
+
+.icon-yes { background-color: #22c55e; }
+.icon-notsure { background-color: #d97706; }
+.icon-no { background-color: #ef4444; }
+
+.card-label {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.label-yes { color: #22c55e; }
+.label-notsure { color: #d97706; }
+.label-no { color: #ef4444; }
+
+.card-middle {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 15px;
+}
+
+.card-number {
+  font-size: 56px;
+  font-weight: 800;
+  color: #1a1a1a;
+  line-height: 1;
+}
+
+.card-percent {
+  font-size: 20px;
+  font-weight: 700;
+}
+.percent-yes { color: #22c55e; }
+.percent-notsure { color: #d97706; }
+.percent-no { color: #ef4444; }
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background-color: #f0f0f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 10px;
+}
+.fill-yes { background-color: #22c55e; }
+.fill-notsure { background-color: #d97706; }
+.fill-no { background-color: #ef4444; }
+
+/* --- ДООД ХЭСЭГ --- */
+.live-response {
+  background-color: #ffffff;
+  border-radius: 20px;
+  padding: 30px 40px;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+  max-width: 800px;
+  margin: 0 auto;
+  justify-content: center;
+}
+
+.donut-chart {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: #f0f0f0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.donut-inner {
+  width: 90px;
+  height: 90px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.donut-number {
+  font-size: 24px;
+  font-weight: 800;
+  color: #1a1a1a;
+  line-height: 1;
+}
+
+.donut-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: #888;
+  margin-top: 4px;
+  letter-spacing: 0.5px;
+}
+
+.response-title {
+  font-size: 23px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0 0 8px 0;
+}
+
+.response-desc {
+  font-size: 16px;
+  color: #666;
+  margin: 0 0 20px 0;
+}
+
+.legend {
+  display: flex;
+  gap: 30px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 4px;
+}
+
+.dot-yes { background-color: #22c55e; }
+.dot-notsure { background-color: #d97706; }
+.legend-dot.dot-no { background-color: #ef4444; }
+
+.legend-name {
+  font-size: 15px;
+  color: #666;
+  margin: 0 0 2px 0;
+}
+
+.legend-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .header { flex-direction: column; align-items: flex-start; gap: 20px; }
+  .header-title { font-size: 30px; }
+  .header-right { flex-direction: column; align-items: flex-start; }
+  .question-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .question-text { font-size: 24px; text-align: left; }
+  .controls { flex-direction: column; }
+  .vote-cards { flex-direction: column; }
+  .live-response { flex-direction: column; text-align: center; padding: 30px 20px; }
+  .legend { justify-content: center; }
+}
