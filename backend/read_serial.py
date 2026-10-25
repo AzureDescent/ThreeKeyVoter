@@ -170,16 +170,18 @@ def handle_line(raw: bytes, args, stats: dict) -> None:
 
     if kind == "node":
         stats["node_events"] += 1
-        node = msg.get("node")
-        online = msg.get("online")
-        print(f"[{'上线' if online else '离线'}] Node {node}（累计 {msg.get('count')} 票）", flush=True)
+        if args.verbose:
+            node = msg.get("node")
+            online = msg.get("online")
+            print(f"[{'上线' if online else '离线'}] Node {node}（累计 {msg.get('count')} 票）", flush=True)
         return
 
     if kind == "gw":
         stats["gw_events"] += 1
         if args.verbose:
             print(f"[网关] uptime={msg.get('uptime')}ms rx={msg.get('rx')} "
-                  f"drop={msg.get('drop')} online={msg.get('online')} ch={msg.get('ch')}", flush=True)
+                  f"drop={msg.get('drop')} bad={msg.get('bad')} "
+                  f"online={msg.get('online')} ch={msg.get('ch')}", flush=True)
         return
 
     if kind not in (None, "vote"):

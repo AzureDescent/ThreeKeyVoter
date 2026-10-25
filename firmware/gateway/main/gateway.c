@@ -123,6 +123,7 @@ typedef struct {
     uint32_t last_seen_ms;
     uint32_t count;      /* 累计收到的投票数（不含心跳） */
     uint32_t last_seq;
+    bool     has_seq;    /* 是否已经收到过带 sequence 的包 */
     bool     online;
 } node_t;
 
@@ -273,12 +274,13 @@ static void handle_packet(const uint8_t *data, int len, const uint8_t *mac, int 
     uint32_t t = now_ms();
 
     /* 去重：同一个 sequence 只认一次（心跳也带 sequence，同样参与去重） */
-    if (n->count > 0 && pkt.sequence == n->last_seq) {
+    if (n->has_seq && pkt.sequence == n->last_seq) {
         s_dedup_drop++;
         ESP_LOGW(TAG, "重复包：node_id=%u seq=%lu", (unsigned)pkt.node_id, (unsigned long)pkt.sequence);
         return;
     }
 
+    n->has_seq = true;
     n->last_seq = pkt.sequence;
     n->last_seen_ms = t;
 
@@ -298,14 +300,16 @@ static void handle_packet(const uint8_t *data, int len, const uint8_t *mac, int 
 }
 
 /* ---------------------------------------------------------------------------
- * ESP-NOW 接收回调
+ * ESP-NOW 接收回调（仅真实链路模式需要）
  * ------------------------------------------------------------------------ */
+#if !GATEWAY_SELF_MOCK
 static void on_espnow_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
     const uint8_t *src = info->src_addr;
     int rssi = info->rx_ctrl ? info->rx_ctrl->rssi : 0;
     handle_packet(data, len, src, rssi);
 }
+#endif /* !GATEWAY_SELF_MOCK */
 
 /* 扫描节点表，把超时的节点标记为离线并上报一次 */
 static void check_offline(void)
@@ -334,6 +338,7 @@ static void check_offline(void)
         }                                                                   \
     } while (0)
 
+#if !GATEWAY_SELF_MOCK
 static bool wireless_init(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -361,20 +366,36 @@ static bool wireless_init(void)
 
     return true;
 }
+#endif /* !GATEWAY_SELF_MOCK */
 
 #if GATEWAY_SELF_MOCK
 static uint32_t s_mock_seq[MOCK_NODE_COUNT];
 static uint32_t s_mock_start_ms;
+static uint32_t s_mock_tick;
 
 static void mock_tick(void)
 {
     uint32_t elapsed = now_ms() - s_mock_start_ms;
+    s_mock_tick++;
 
     for (int i = 0; i < MOCK_NODE_COUNT; i++) {
         /* 最后一个节点在演示窗口内停发，用来演示"离线"与"恢复上线" */
         if (i == (MOCK_NODE_COUNT - 1) &&
             elapsed > MOCK_DROPOUT_MS && elapsed < MOCK_RESUME_MS) {
             continue;
+        }
+
+        /* 每 2 秒补一个心跳：用来验证「只靠心跳也能被判在线」这条路径，
+         * 同时也确保 5 秒超时阈值不会被心跳间隔擦边触发 */
+        if ((s_mock_tick % 2) == 0) {
+            vote_packet_t hb;
+            hb.ver      = PROTOCOL_VERSION;
+            hb.node_id  = (uint8_t)(i + 1);
+            hb.vote     = VOTE_HEARTBEAT;
+            hb.sequence = s_mock_seq[i]++;
+
+            uint8_t hb_mac[6] = { 0x02, 0x00, 0x00, 0x00, 0x00, (uint8_t)(i + 1) };
+            handle_packet((const uint8_t *)&hb, (int)sizeof(hb), hb_mac, -(40 + i * 3));
         }
 
         vote_packet_t pkt;
