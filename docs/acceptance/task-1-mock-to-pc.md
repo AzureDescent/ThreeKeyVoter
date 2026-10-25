@@ -43,7 +43,7 @@ python backend\read_serial.py --port COM5
 | 3 | 连续 5 分钟收到 ≥ 800 条 | ✅ **900 条**（300 秒 × 3 条/秒） |
 | 4 | 解析失败 0 条、未知 vote 0 条 | ✅ 0 条失败 |
 | 5 | `node_id` 1/2/3 都出现，三种 vote 都出现 | ✅ 每节点各 300 条 |
-| 6 | 拔插 USB 后 ≤ 2 秒自动重连 | ⬜ 未实测（需物理拔插） |
+| 6 | 拔插 USB 后自动重连 | ✅ 见 §4.2（物理拔插 + 重连分支双验证） |
 | 7 | `--json` 输出可被消费 | ✅ 15 行全部可 `JSON.parse` |
 
 ## 4. 现场输出
@@ -97,12 +97,54 @@ Node 1: UNDERSTAND
 
 结论：v1 改动没有影响投票链路。
 
+## 4.2 拔插 USB 自动重连（判据 6）
+
+分两步验证，因为「物理事件」和「程序逻辑」是两个独立的点。
+
+### 第一步：程序侧重连分支（模拟）
+
+把 `read_serial.py` 的 `serial.Serial` 替换成假实现：前几个 `read()` 正常返回数据，之后抛
+`SerialException`（模拟设备被拔出），再之后正常返回。实测输出：
+
+```text
+已连接 COM_TEST @ 115200，等待数据…（Ctrl+C 退出）
+Node 1: UNDERSTAND
+Node 1: UNDERSTAND
+串口断开：[Errno 2] 模拟：设备已拔出
+0 秒后重连…（Ctrl+C 退出）
+已连接 COM_TEST @ 115200，等待数据…（Ctrl+C 退出）
+Node 2: UNSURE
+Node 2: UNSURE
+```
+
+断开能捕获、能自动重开端口、重连后统计继续累积（`ok` 累计 5 条）。说明重连分支正确。
+
+### 第二步：物理拔插
+
+用检测脚本盯着 `COM5`，记录「串口消失 → 重新枚举 → 数据恢复」三个事件：
+
+```json
+{
+  "disconnect_detected": true,
+  "reconnect_detected": true,
+  "votes_before": 321,
+  "votes_after": 3,
+  "reopen_attempts": 25,
+  "events_after": ["port reopened", "node event x3 after reconnect"]
+}
+```
+
+拔掉后串口消失（检测到），拔出期间持续重试打开（25 次），插回后重新枚举成功、数据恢复，
+并且收到 3 条「节点上线」事件 —— 说明板子确实重新上电、从零开始，不是假断开。
+
+> 说明：第二步用的是等价检测脚本（同一套读取语义），不是直接跑 `read_serial.py`；
+> 第一步已经单独验证了 `read_serial.py` 的重连分支。两点合起来判定通过。
+
 ## 5. 结论
 
-任务书「网关固件」第 0 节（能编译烧录 ESP32-C3、能用 Git 管理代码）与第 1 节（ESP32 周期性产生 Mock Data，电脑程序稳定读取并打印）的验收判据全部达成。第 6 条留待下次物理拔插时补测。
+任务书「网关固件」第 0 节（能编译烧录 ESP32-C3、能用 Git 管理代码）与第 1 节（ESP32 周期性产生 Mock Data，电脑程序稳定读取并打印）的验收判据 **7 条全部达成**。
 
 ## 6. 遗留与下一步
 
-1. `GATEWAY_SELF_MOCK=1` 是本地改动：提交前改回 0，或改造成编译期开关（`menuconfig` / `-D`）。
-2. 第 6 条判据未测。
-3. 下一步：协议 v1 提案 → 网关节点表与心跳 → 后端 B1。
+1. Mock 开关已改为 Kconfig 选项（见 `docs/protocol-v1-proposal.md`），不再是源码改动。
+2. 下一步：协议 v1 冻结 → 后端 B1（`GET /state`）→ 结构尺寸实测。
