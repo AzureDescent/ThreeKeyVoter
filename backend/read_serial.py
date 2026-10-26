@@ -132,10 +132,16 @@ def print_summary(stats: dict, elapsed: float) -> None:
     if stats["nodes"]:
         nodes = ", ".join(str(n) for n in sorted(stats["nodes"]))
         print(f"出现过的 node_id: {nodes}")
+    if stats["node_events"]:
+        print(f"节点上线/离线事件: {stats['node_events']} 条")
+    if stats["gw_events"]:
+        print(f"网关心跳: {stats['gw_events']} 条")
     if stats["bad_json"]:
         print(f"  ⚠ 解析失败的 JSON: {stats['bad_json']} 条")
     if stats["bad_vote"]:
         print(f"  ⚠ 未知 vote 取值: {stats['bad_vote']} 条")
+    if stats["unknown_events"]:
+        print(f"  ⚠ 不认识的事件类型: {stats['unknown_events']} 条")
 
 
 def handle_line(raw: bytes, args, stats: dict) -> None:
@@ -157,8 +163,35 @@ def handle_line(raw: bytes, args, stats: dict) -> None:
         print(f"[警告] JSON 解析失败（累计 {stats['bad_json']} 条）: {text[:100]}", flush=True)
         return
 
+    # ---- 协议 v1 事件分发 ------------------------------------------------
+    # 见 docs/protocol-v1-proposal.md：串口上行分三类事件，用 "t" 字段区分。
+    # 没有 "t" 字段的行按 v0 的纯投票行处理，保持向后兼容。
+    kind = msg.get("t")
+
+    if kind == "node":
+        stats["node_events"] += 1
+        if args.verbose:
+            node = msg.get("node")
+            online = msg.get("online")
+            print(f"[{'上线' if online else '离线'}] Node {node}（累计 {msg.get('count')} 票）", flush=True)
+        return
+
+    if kind == "gw":
+        stats["gw_events"] += 1
+        if args.verbose:
+            print(f"[网关] uptime={msg.get('uptime')}ms rx={msg.get('rx')} "
+                  f"drop={msg.get('drop')} bad={msg.get('bad')} "
+                  f"online={msg.get('online')} ch={msg.get('ch')}", flush=True)
+        return
+
+    if kind not in (None, "vote"):
+        stats["unknown_events"] += 1
+        if args.verbose:
+            print(f"[未知事件 t={kind!r}] {text[:100]}", flush=True)
+        return
+
     vote = msg.get("vote")
-    node_id = msg.get("node_id")
+    node_id = msg.get("node", msg.get("node_id"))   # v1 用 node，v0 用 node_id
 
     if vote not in VALID_VOTES:
         stats["bad_vote"] += 1
@@ -172,11 +205,11 @@ def handle_line(raw: bytes, args, stats: dict) -> None:
     if args.json:
         # 规范化后输出，方便后面直接管道给前端
         print(json.dumps(
-            {"node_id": node_id, "vote": vote, "sequence": msg.get("sequence")},
+            {"node_id": node_id, "vote": vote, "sequence": msg.get("seq", msg.get("sequence"))},
             ensure_ascii=False,
         ), flush=True)
     elif args.verbose:
-        print(f"Node {node_id}: {vote}   (sequence={msg.get('sequence')})", flush=True)
+        print(f"Node {node_id}: {vote}   (sequence={msg.get('seq', msg.get('sequence'))})", flush=True)
     else:
         # 任务书要求的格式
         print(f"Node {node_id}: {vote}", flush=True)
@@ -236,6 +269,9 @@ def main() -> int:
         "ok": 0,
         "bad_json": 0,
         "bad_vote": 0,
+        "node_events": 0,
+        "gw_events": 0,
+        "unknown_events": 0,
         "by_vote": {},
         "nodes": set(),
     }

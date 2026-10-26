@@ -43,8 +43,11 @@ ThreeKeyVoter/
 │   └── gateway/          ESP-IDF 工程 — 网关（ESP-NOW → USB Serial）
 ├── backend/              PC 端程序 — 读串口、解析、对外提供数据
 ├── frontend/             教师端页面
+├── structure/            外壳结构设计（尺寸清单 / 后续 CAD）
 ├── docs/
-│   └── protocol.md       通信协议 v0（草案，尚未冻结）
+│   ├── protocol.md                通信协议 v0（草案，尚未冻结）
+│   ├── protocol-v1-proposal.md    v1 提案（设备状态 / 心跳 / 版本号）
+│   └── acceptance/                验收记录
 ├── project_task.md       任务书原文
 ├── .gitattributes
 └── .gitignore

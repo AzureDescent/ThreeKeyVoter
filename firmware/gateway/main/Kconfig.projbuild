@@ -1,0 +1,13 @@
+menu "ThreeKeyVoter Gateway"
+
+    config GATEWAY_SELF_MOCK
+        bool "网关自产 Mock 数据（单板调试 / 验收用）"
+        default n
+        help
+            开启后网关不接收 ESP-NOW，而是每秒自己产生 3 条 Mock 投票，
+            并走与真实链路完全相同的数据处理路径（节点表 / 去重 / 在线判定 /
+            网关心跳），用于没有学生端板子时验证 PC 通路。
+
+            开启方式：idf.py menuconfig -> ThreeKeyVoter Gateway
+
+endmenu

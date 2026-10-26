@@ -1,4 +1,9 @@
-# PC 端读取程序的依赖
+# PC 端依赖
 # 安装：python -m pip install -r backend/requirements.txt
 
+# 串口读取（read_serial.py / server.py 的 --serial 模式）
 pyserial>=3.5
+
+# B1 起的本地服务（server.py）
+fastapi>=0.110
+uvicorn>=0.29

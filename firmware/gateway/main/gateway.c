@@ -1,14 +1,20 @@
 /*
- * 网关 · ESP-NOW 接收 -> USB Serial 转发
+ * 网关 · ESP-NOW 接收 -> USB Serial 转发（协议 v1）
  * ============================================================================
  * 负责方向：网关固件
  *
  * 当前能力：
- *   1) ESP-NOW 接收学生端的投票，按 JSON Lines 经 USB Serial 转发给 PC
- *   2) 可选：自己产生 Mock Data（单板调试用，见 GATEWAY_SELF_MOCK）
+ *   1) ESP-NOW 接收学生端投票，维护节点表（在线状态 / 累计票数 / 去重）
+ *   2) 按 JSON Lines 经 USB Serial 转发给 PC，共三类事件：
+ *        vote —— 一张投票
+ *        node —— 节点上线 / 离线
+ *        gw   —— 网关心跳（含在线节点列表）
+ *   3) 可选：自己产生 Mock Data（单板调试 / 验收用，见 CONFIG_GATEWAY_SELF_MOCK）
  *
  * 数据流（任务书第 2 节）：
  *   学生端 ESP32 --ESP-NOW--> 网关 ESP32 --USB Serial--> PC
+ *
+ * 协议细节见 docs/protocol-v1-proposal.md。
  *
  * ---------------------------------------------------------------------------
  * 串口输出格式 —— PC 端解析必须知道
@@ -18,16 +24,19 @@
  *     2. 数据行：以 '{' 开头的纯 JSON，以 '\n' 结尾
  *
  *   PC 端解析的正确做法：**只处理以 '{' 开头的行，其余一律跳过。**
+ *   解析器遇到不认识的 "t" 取值应当跳过而不是报错退出 —— 这是为协议继续
+ *   演进留的余地。
  *
  * ---------------------------------------------------------------------------
  * 关于拼 JSON
  * ---------------------------------------------------------------------------
  *   ESP-IDF v6 起 cJSON 已被移出 IDF、变成需要联网拉取的托管组件。
- *   这里要拼的 JSON 很简单，直接 snprintf 手拼，不要引入 cJSON。
+ *   这里要拼的 JSON 都很简单，直接 snprintf 手拼，不要引入 cJSON。
  * ============================================================================
  */
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -38,6 +47,7 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 
 #include "nvs_flash.h"
 #include "esp_event.h"
@@ -48,24 +58,48 @@
 static const char *TAG = "gateway";
 
 /* ===========================================================================
- * 开关：网关要不要自己造假数据
+ * 编译开关：网关要不要自己造假数据
  * ---------------------------------------------------------------------------
- *   0 = 只转发 ESP-NOW 收到的真实数据（**两块板联调时用这个**，当前默认）
- *   1 = 自己周期性产生 Mock Data（只有一块板、想单独验证 PC 通路时用）
+ *   由 Kconfig 提供（idf.py menuconfig -> ThreeKeyVoter Gateway）
+ *   0 = 只转发 ESP-NOW 收到的真实数据（默认，两块板联调时用这个）
+ *   1 = 自己周期性产生 Mock Data，但**走与真实链路完全相同的处理路径**，
+ *       因此在只有一块板时也能验证节点表 / 去重 / 在线判定 / 心跳
  * =========================================================================== */
+#ifdef CONFIG_GATEWAY_SELF_MOCK
+#define GATEWAY_SELF_MOCK   1
+#else
 #define GATEWAY_SELF_MOCK   0
+#endif
 
 /* ESP-NOW 固定信道：所有节点必须一致，否则互相收不到 */
 #define ESPNOW_CHANNEL      1
 
+/* 协议版本。学生端 / 网关 / 文档三处必须一致 */
+#define PROTOCOL_VERSION    1
+
+/* 节点表容量。一块网关同时支持的节点数上限 */
+#define MAX_NODES           8
+
+/* 超过这个时间没收到该节点的任何包，判定离线 */
+#define NODE_TIMEOUT_MS     5000
+
+/* 网关心跳间隔 */
+#define GW_HEARTBEAT_MS     1000
+
 /* Mock 参数（仅 GATEWAY_SELF_MOCK=1 时有效） */
 #define MOCK_NODE_COUNT     3
 #define MOCK_INTERVAL_MS    1000
+/* Mock 模式下让第 3 个节点在 MOCK_DROPOUT_MS 后停发、MOCK_RESUME_MS 后恢复，
+ * 用来在同一次运行里验证"离线"和"恢复上线"两类事件 */
+#define MOCK_DROPOUT_MS     20000
+#define MOCK_RESUME_MS      30000
 
-/* 无数据时的心跳日志间隔，用来确认板子还活着 */
-#define IDLE_LOG_MS         10000
+/* 投票取值，与 docs/protocol.md 第 1 节的顺序一致 */
+#define VOTE_UNDERSTAND         0
+#define VOTE_UNSURE             1
+#define VOTE_NOT_UNDERSTAND     2
+#define VOTE_HEARTBEAT          3
 
-/* 与 docs/protocol.md 第 1 节的取值保持一致 */
 static const char *VOTE_STR[3] = {
     "UNDERSTAND",
     "UNSURE",
@@ -73,74 +107,223 @@ static const char *VOTE_STR[3] = {
 };
 
 /* 与网关共用的数据结构 —— **两边必须完全一致**。
- * 改动时三处一起改：gateway.c / student.c / docs/protocol.md */
+ * 改动时三处一起改：gateway.c / student.c / docs/protocol-v1-proposal.md
+ * 必须 packed：否则编译器会插入对齐填充，导致两端算出的长度不同、字段错位。 */
 typedef struct {
-    uint8_t  node_id;
-    char     vote[16];
-    uint32_t sequence;
+    uint8_t  ver;       /* 协议版本，当前 = 1 */
+    uint8_t  node_id;   /* 1..MAX_NODES */
+    uint8_t  vote;      /* VOTE_* 之一 */
+    uint32_t sequence;  /* 节点自增序号 */
 } __attribute__((packed)) vote_packet_t;
 
-#if GATEWAY_SELF_MOCK
-static uint32_t s_sequence[MOCK_NODE_COUNT] = { 0 };
-#endif
+typedef struct {
+    bool     used;
+    uint8_t  node_id;
+    uint8_t  mac[6];
+    uint32_t last_seen_ms;
+    uint32_t count;      /* 累计收到的投票数（不含心跳） */
+    uint32_t last_seq;
+    bool     has_seq;    /* 是否已经收到过带 sequence 的包 */
+    bool     online;
+} node_t;
 
-static volatile uint32_t s_recv_count = 0;
+static node_t s_nodes[MAX_NODES];
+static uint32_t s_rx_total = 0;      /* 有效投票总数 */
+static uint32_t s_dedup_drop = 0;    /* 因 sequence 重复被丢弃的包 */
+static uint32_t s_bad_packet = 0;    /* 长度 / 版本 / 取值非法的包 */
 
-/* 判断 vote 是否是协议里定义的合法值 */
-static bool vote_is_valid(const char *vote)
+static uint32_t now_ms(void)
 {
-    for (int i = 0; i < 3; i++) {
-        if (strncmp(vote, VOTE_STR[i], sizeof(((vote_packet_t *)0)->vote)) == 0) {
-            return true;
-        }
-    }
-    return false;
+    return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
-/* 输出一行 JSON。Mock 和真实数据都走这里，保证 PC 端只认一种格式。 */
-static void emit_json_line(unsigned node_id, const char *vote, unsigned sequence)
+/* 输出一行，并立刻 flush：串口不能用行缓冲，否则 PC 端会延迟看到数据 */
+static void write_line(const char *line)
+{
+    fwrite(line, 1, strlen(line), stdout);
+    fputc('\n', stdout);
+    fflush(stdout);
+}
+
+static void emit_vote(uint8_t node_id, uint8_t vote, uint32_t seq, int rssi)
+{
+    char buf[160];
+    snprintf(buf, sizeof(buf),
+             "{\"t\":\"vote\",\"node\":%u,\"vote\":\"%s\",\"seq\":%lu,\"rssi\":%d}",
+             (unsigned)node_id, VOTE_STR[vote], (unsigned long)seq, rssi);
+    write_line(buf);
+}
+
+static void emit_node(uint8_t node_id, bool online, uint32_t count)
 {
     char buf[128];
-    int n = snprintf(buf, sizeof(buf),
-                     "{\"node_id\":%u,\"vote\":\"%s\",\"sequence\":%u}\n",
-                     node_id, vote, sequence);
-    if (n > 0 && n < (int)sizeof(buf)) {
-        fwrite(buf, 1, (size_t)n, stdout);
-        fflush(stdout);
+    snprintf(buf, sizeof(buf),
+             "{\"t\":\"node\",\"node\":%u,\"online\":%s,\"count\":%lu}",
+             (unsigned)node_id, online ? "true" : "false", (unsigned long)count);
+    write_line(buf);
+}
+
+static void emit_gw(uint32_t uptime_ms)
+{
+    char list[64];
+    size_t pos = 0;
+    bool first = true;
+
+    list[pos++] = '[';
+    for (int i = 0; i < MAX_NODES; i++) {
+        if (!s_nodes[i].used || !s_nodes[i].online) {
+            continue;
+        }
+        int n = snprintf(&list[pos], sizeof(list) - pos, "%s%u",
+                         first ? "" : ",", (unsigned)s_nodes[i].node_id);
+        if (n <= 0 || (size_t)n >= sizeof(list) - pos) {
+            break;
+        }
+        pos += (size_t)n;
+        first = false;
     }
+    if (pos < sizeof(list) - 1) {
+        list[pos++] = ']';
+    }
+    list[pos] = '\0';
+
+    char buf[192];
+    snprintf(buf, sizeof(buf),
+             "{\"t\":\"gw\",\"uptime\":%lu,\"rx\":%lu,\"drop\":%lu,\"bad\":%lu,\"online\":%s,\"ch\":%d}",
+             (unsigned long)uptime_ms, (unsigned long)s_rx_total,
+             (unsigned long)s_dedup_drop, (unsigned long)s_bad_packet,
+             list, ESPNOW_CHANNEL);
+    write_line(buf);
+}
+
+static node_t *node_find(uint8_t node_id)
+{
+    for (int i = 0; i < MAX_NODES; i++) {
+        if (s_nodes[i].used && s_nodes[i].node_id == node_id) {
+            return &s_nodes[i];
+        }
+    }
+    return NULL;
+}
+
+static node_t *node_get_or_create(uint8_t node_id, const uint8_t *mac)
+{
+    node_t *n = node_find(node_id);
+    if (n != NULL) {
+        /* 同一 node_id 换了 MAC：多半是改了节点编号或换了板子，记一条警告 */
+        if (mac != NULL && memcmp(n->mac, mac, 6) != 0) {
+            ESP_LOGW(TAG, "node_id %u 的 MAC 变了", (unsigned)node_id);
+            memcpy(n->mac, mac, 6);
+        }
+        return n;
+    }
+
+    for (int i = 0; i < MAX_NODES; i++) {
+        if (!s_nodes[i].used) {
+            memset(&s_nodes[i], 0, sizeof(node_t));
+            s_nodes[i].used = true;
+            s_nodes[i].node_id = node_id;
+            if (mac != NULL) {
+                memcpy(s_nodes[i].mac, mac, 6);
+            }
+            s_nodes[i].online = false;
+            return &s_nodes[i];
+        }
+    }
+
+    ESP_LOGW(TAG, "节点表已满（%d 个），忽略 node_id %u", MAX_NODES, (unsigned)node_id);
+    return NULL;
 }
 
 /* ---------------------------------------------------------------------------
- * ESP-NOW 接收回调
+ * 所有投票的处理入口。ESP-NOW 回调和 Mock 产生器都走这里，
+ * 这样 Mock 模式能真正验证后面整套逻辑，而不是只验证 printf。
  * ------------------------------------------------------------------------ */
-static void on_espnow_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
+static void handle_packet(const uint8_t *data, int len, const uint8_t *mac, int rssi)
 {
     if (len < (int)sizeof(vote_packet_t)) {
-        ESP_LOGW(TAG, "收到的数据长度异常: %d 字节（期望 %d）", len, (int)sizeof(vote_packet_t));
+        s_bad_packet++;
+        ESP_LOGW(TAG, "数据长度异常：%d 字节（期望 %d）", len, (int)sizeof(vote_packet_t));
         return;
     }
 
-    const vote_packet_t *pkt = (const vote_packet_t *)data;
+    vote_packet_t pkt;
+    memcpy(&pkt, data, sizeof(pkt));
 
-    /* vote 是 char[16]，未必有结尾 0，校验时按定长比较 */
-    char vote[sizeof(pkt->vote) + 1] = { 0 };
-    memcpy(vote, pkt->vote, sizeof(pkt->vote));
-
-    if (!vote_is_valid(vote)) {
-        ESP_LOGW(TAG, "忽略无法识别的 vote: \"%s\"", vote);
+    if (pkt.ver != PROTOCOL_VERSION) {
+        s_bad_packet++;
+        ESP_LOGW(TAG, "协议版本不匹配：收到 %u，期望 %u", (unsigned)pkt.ver, PROTOCOL_VERSION);
+        return;
+    }
+    if (pkt.node_id == 0 || pkt.node_id > MAX_NODES) {
+        s_bad_packet++;
+        ESP_LOGW(TAG, "node_id 越界：%u", (unsigned)pkt.node_id);
+        return;
+    }
+    if (pkt.vote > VOTE_HEARTBEAT) {
+        s_bad_packet++;
+        ESP_LOGW(TAG, "vote 取值非法：%u", (unsigned)pkt.vote);
         return;
     }
 
-    s_recv_count++;
+    node_t *n = node_get_or_create(pkt.node_id, mac);
+    if (n == NULL) {
+        return;
+    }
 
-    /* 真实数据也输出成同样的 JSON 行，PC 端逻辑不用改 */
-    emit_json_line(pkt->node_id, vote, (unsigned)pkt->sequence);
+    uint32_t t = now_ms();
 
+    /* 去重：同一个 sequence 只认一次（心跳也带 sequence，同样参与去重） */
+    if (n->has_seq && pkt.sequence == n->last_seq) {
+        s_dedup_drop++;
+        ESP_LOGW(TAG, "重复包：node_id=%u seq=%lu", (unsigned)pkt.node_id, (unsigned long)pkt.sequence);
+        return;
+    }
+
+    n->has_seq = true;
+    n->last_seq = pkt.sequence;
+    n->last_seen_ms = t;
+
+    if (!n->online) {
+        n->online = true;
+        emit_node(pkt.node_id, true, n->count);
+        ESP_LOGI(TAG, "节点 %u 上线", (unsigned)pkt.node_id);
+    }
+
+    if (pkt.vote == VOTE_HEARTBEAT) {
+        return;   /* 心跳只用来刷新在线状态，不算投票 */
+    }
+
+    n->count++;
+    s_rx_total++;
+    emit_vote(pkt.node_id, pkt.vote, pkt.sequence, rssi);
+}
+
+/* ---------------------------------------------------------------------------
+ * ESP-NOW 接收回调（仅真实链路模式需要）
+ * ------------------------------------------------------------------------ */
+#if !GATEWAY_SELF_MOCK
+static void on_espnow_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
+{
     const uint8_t *src = info->src_addr;
     int rssi = info->rx_ctrl ? info->rx_ctrl->rssi : 0;
-    ESP_LOGI(TAG, "ESP-NOW 收到 #%lu  来自 %02X:%02X:%02X:%02X:%02X:%02X  rssi=%d dBm",
-             (unsigned long)s_recv_count,
-             src[0], src[1], src[2], src[3], src[4], src[5], rssi);
+    handle_packet(data, len, src, rssi);
+}
+#endif /* !GATEWAY_SELF_MOCK */
+
+/* 扫描节点表，把超时的节点标记为离线并上报一次 */
+static void check_offline(void)
+{
+    uint32_t t = now_ms();
+    for (int i = 0; i < MAX_NODES; i++) {
+        if (s_nodes[i].used && s_nodes[i].online &&
+            (t - s_nodes[i].last_seen_ms) > NODE_TIMEOUT_MS) {
+            s_nodes[i].online = false;
+            emit_node(s_nodes[i].node_id, false, s_nodes[i].count);
+            ESP_LOGI(TAG, "节点 %u 离线（%lu ms 无数据）",
+                     (unsigned)s_nodes[i].node_id, (unsigned long)(t - s_nodes[i].last_seen_ms));
+        }
+    }
 }
 
 /* ---------------------------------------------------------------------------
@@ -155,6 +338,7 @@ static void on_espnow_recv(const esp_now_recv_info_t *info, const uint8_t *data,
         }                                                                   \
     } while (0)
 
+#if !GATEWAY_SELF_MOCK
 static bool wireless_init(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -182,22 +366,56 @@ static bool wireless_init(void)
 
     return true;
 }
+#endif /* !GATEWAY_SELF_MOCK */
 
 #if GATEWAY_SELF_MOCK
-static void emit_mock_line(int idx)
+static uint32_t s_mock_seq[MOCK_NODE_COUNT];
+static uint32_t s_mock_start_ms;
+static uint32_t s_mock_tick;
+
+static void mock_tick(void)
 {
-    if (idx < 0 || idx >= MOCK_NODE_COUNT) {
-        return;
+    uint32_t elapsed = now_ms() - s_mock_start_ms;
+    s_mock_tick++;
+
+    for (int i = 0; i < MOCK_NODE_COUNT; i++) {
+        /* 最后一个节点在演示窗口内停发，用来演示"离线"与"恢复上线" */
+        if (i == (MOCK_NODE_COUNT - 1) &&
+            elapsed > MOCK_DROPOUT_MS && elapsed < MOCK_RESUME_MS) {
+            continue;
+        }
+
+        /* 每 2 秒补一个心跳：用来验证「只靠心跳也能被判在线」这条路径，
+         * 同时也确保 5 秒超时阈值不会被心跳间隔擦边触发 */
+        if ((s_mock_tick % 2) == 0) {
+            vote_packet_t hb;
+            hb.ver      = PROTOCOL_VERSION;
+            hb.node_id  = (uint8_t)(i + 1);
+            hb.vote     = VOTE_HEARTBEAT;
+            hb.sequence = s_mock_seq[i]++;
+
+            uint8_t hb_mac[6] = { 0x02, 0x00, 0x00, 0x00, 0x00, (uint8_t)(i + 1) };
+            handle_packet((const uint8_t *)&hb, (int)sizeof(hb), hb_mac, -(40 + i * 3));
+        }
+
+        vote_packet_t pkt;
+        pkt.ver      = PROTOCOL_VERSION;
+        pkt.node_id  = (uint8_t)(i + 1);
+        pkt.vote     = (uint8_t)(esp_random() % 3);
+        pkt.sequence = s_mock_seq[i]++;
+
+        /* 伪造一个本机 MAC，让节点表 / 日志路径与真实链路一致 */
+        uint8_t fake_mac[6] = { 0x02, 0x00, 0x00, 0x00, 0x00, (uint8_t)(i + 1) };
+        int fake_rssi = -(40 + i * 3);
+        handle_packet((const uint8_t *)&pkt, (int)sizeof(pkt), fake_mac, fake_rssi);
     }
-    const char *vote = VOTE_STR[esp_random() % 3];
-    emit_json_line((unsigned)(idx + 1), vote, (unsigned)s_sequence[idx]++);
 }
 #endif
 
 void app_main(void)
 {
 #if GATEWAY_SELF_MOCK
-    ESP_LOGI(TAG, "ThreeKeyVoter gateway —— 自产 Mock Data 模式");
+    ESP_LOGI(TAG, "ThreeKeyVoter gateway —— 自产 Mock Data 模式（走完整处理路径）");
 #else
     ESP_LOGI(TAG, "ThreeKeyVoter gateway —— ESP-NOW 接收模式");
 #endif
@@ -209,41 +427,36 @@ void app_main(void)
         ESP_LOGI(TAG, "Wi-Fi STA MAC : %02X:%02X:%02X:%02X:%02X:%02X",
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
         ESP_LOGI(TAG, "ESP-NOW 信道  : %d", ESPNOW_CHANNEL);
+        ESP_LOGI(TAG, "协议版本      : %d", PROTOCOL_VERSION);
         ESP_LOGI(TAG, "(学生端的 GATEWAY_MAC 必须填上面这个地址)");
         ESP_LOGI(TAG, "=======================================================");
     } else {
         ESP_LOGW(TAG, "读取 MAC 失败");
     }
 
+#if !GATEWAY_SELF_MOCK
     if (wireless_init()) {
         ESP_LOGI(TAG, "Wi-Fi + ESP-NOW 初始化完成，等待学生端数据…");
     } else {
         ESP_LOGW(TAG, "无线初始化失败");
     }
-    ESP_LOGI(TAG, "PC 端解析规则：只处理以 '{' 开头的行");
+#endif
 
-    uint32_t last_count = 0;
-    uint32_t idle_acc = 0;
+    ESP_LOGI(TAG, "PC 端解析规则：只处理以 '{' 开头的行，按 t 字段分发");
+
+#if GATEWAY_SELF_MOCK
+    s_mock_start_ms = now_ms();
+    ESP_LOGI(TAG, "Mock：每秒产生 %d 条投票；第 %d 号节点在 %d–%d ms 停发，用于演示离线/恢复",
+             MOCK_NODE_COUNT, MOCK_NODE_COUNT, MOCK_DROPOUT_MS, MOCK_RESUME_MS);
+#endif
 
     while (true) {
-#if GATEWAY_SELF_MOCK
-        for (int i = 0; i < MOCK_NODE_COUNT; i++) {
-            emit_mock_line(i);
-        }
-        vTaskDelay(pdMS_TO_TICKS(MOCK_INTERVAL_MS));
-#else
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(GW_HEARTBEAT_MS));
 
-        /* 没有数据时定期报个平安，否则串口一片安静会让人怀疑板子挂了 */
-        idle_acc += 1000;
-        if (idle_acc >= IDLE_LOG_MS) {
-            idle_acc = 0;
-            if (s_recv_count == last_count) {
-                ESP_LOGI(TAG, "等待 ESP-NOW 数据…（累计收到 %lu 条）",
-                         (unsigned long)s_recv_count);
-            }
-            last_count = s_recv_count;
-        }
+#if GATEWAY_SELF_MOCK
+        mock_tick();
 #endif
+        check_offline();
+        emit_gw(now_ms());
     }
 }
